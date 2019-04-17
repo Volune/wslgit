@@ -4,8 +4,10 @@ use std::io::{self, Write};
 use std::borrow::Cow;
 use std::path::{Path, Component, PrefixComponent, Prefix};
 
-#[macro_use] extern crate lazy_static;
+#[macro_use]
+extern crate lazy_static;
 extern crate regex;
+
 use regex::bytes::Regex;
 
 
@@ -30,7 +32,7 @@ fn get_prefix_for_drive(drive: &str) -> String {
 fn translate_path_to_unix(argument: String) -> String {
     {
         let (argname, arg) = if argument.starts_with("--")
-                             && argument.contains('=') {
+            && argument.contains('=') {
             let parts: Vec<&str> = argument
                 .splitn(2, '=')
                 .collect();
@@ -49,7 +51,7 @@ fn translate_path_to_unix(argument: String) -> String {
                                          win_path));
                             acc.push_str(&get_prefix_for_drive(&d));
                         }
-                        Component::RootDir => {},
+                        Component::RootDir => {}
                         _ => {
                             let d = c.as_os_str().to_str()
                                 .expect(
@@ -91,45 +93,29 @@ fn shell_escape(arg: String) -> String {
     arg.replace("\n", "$'\n'")
 }
 
-fn use_interactive_shell() -> bool {
-    // check for explicit environment variable setting
-    if let Ok(interactive_flag) = env::var("WSLGIT_USE_INTERACTIVE_SHELL") {
-        if interactive_flag == "false" || interactive_flag == "0" {
-            return false;
-        }
-    }
-    // check for advanced usage indicated by BASH_ENV and WSLENV=BASH_ENV
-    else if env::var("BASH_ENV").is_ok() {
-        if let Ok(wslenv) = env::var("WSLENV") {
-            if wslenv.split(':').position(|r| r.eq_ignore_ascii_case("BASH_ENV")).is_some() {
-                return false;
-            }
-        }
-    }
-    true
-}
+fn translate_git_editor(editor: String) -> String {
+    let editor_parts: Vec<&str> = editor.splitn(2, " ").collect();
+    println!("EDITOR {}", translate_path_to_unix(String::from(editor_parts[0])));
+    std::process::exit(58);
 
+    return [
+        translate_path_to_unix(String::from(editor_parts[0])),
+        String::from(editor_parts[1])
+    ].join(" ")
+}
 
 fn main() {
     let mut cmd_args = Vec::new();
     let cwd_unix = translate_path_to_unix(env::current_dir().unwrap().to_string_lossy().into_owned());
-    let mut git_args: Vec<String> = vec![String::from("cd"), cwd_unix, String::from("&&"), String::from("git")];
+    let mut git_args: Vec<String> = vec![String::from("git")];
     let git_cmd: String;
 
     // process git command arguments
     git_args.extend(env::args().skip(1)
         .map(translate_path_to_unix));
 
-    if use_interactive_shell() {
-        cmd_args.push("bash".to_string());
-        cmd_args.push("-ic".to_string());
-        git_cmd = git_args.into_iter().map(shell_escape).collect::<Vec<String>>().join(" ");
-        cmd_args.push(git_cmd.clone());
-    }
-    else {
-        git_cmd = git_args.join(" ");
-        cmd_args = git_args;
-    }
+    git_cmd = git_args.join(" ");
+    cmd_args = git_args;
 
     // setup stdin/stdout
     let stdin_mode = if env::args().last().unwrap() == "--version" {
@@ -141,7 +127,7 @@ fn main() {
         // for all other commands, but not for the initial `--version` check.
         // Stdin is needed for example when commiting, where the commit
         // message is passed on stdin.
-        Stdio::null()
+        Stdio::inherit()
     } else {
         Stdio::inherit()
     };
@@ -152,11 +138,18 @@ fn main() {
         .stdin(stdin_mode);
     let status;
 
+    match env::var("GIT_EDITOR") {
+        Ok(val) => {
+            git_proc_setup.env("GIT_EDITOR", translate_git_editor(val));
+        },
+        _ => {}
+    }
+
     // add git commands that must use translate_path_to_win
     const TRANSLATED_CMDS: &[&str] = &["rev-parse", "remote"];
 
     let translate_output =
-       env::args().skip(1).position(|arg| TRANSLATED_CMDS.iter().position(|&tcmd| tcmd == arg).is_some()).is_some();
+        env::args().skip(1).position(|arg| TRANSLATED_CMDS.iter().position(|&tcmd| tcmd == arg).is_some()).is_some();
 
     if translate_output {
         // run the subprocess and capture its output
@@ -173,11 +166,12 @@ fn main() {
             .write_all(&translate_path_to_win(&output_bytes))
             .expect("Failed to write git output");
         stdout.flush().expect("Failed to flush output");
-    }
-    else {
+    } else {
         // run the subprocess without capturing its output
         // the output of the subprocess is passed through unchanged
-        status = git_proc_setup.status()
+        status = git_proc_setup
+            .stdout(Stdio::inherit())
+            .status()
             .expect(&format!("Failed to execute command '{}'", &git_cmd));
     }
 
