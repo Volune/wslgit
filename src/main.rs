@@ -93,15 +93,30 @@ fn shell_escape(arg: String) -> String {
     arg.replace("\n", "$'\n'")
 }
 
+fn resolve_actual_win_path(win_path: &Path) -> Option<String> {
+    ["", ".CMD", ".EXE"]
+        .iter()
+        .map(|ext| win_path.with_extension(ext))
+        .find(|p| p.exists())?
+        .canonicalize().ok()?
+        .to_str()
+        .map(String::from)
+}
+
 fn translate_git_editor(editor: String) -> String {
     let editor_parts: Vec<&str> = editor.splitn(2, " ").collect();
-    println!("EDITOR {}", translate_path_to_unix(String::from(editor_parts[0])));
+    let win_path = Path::new(editor_parts[0]);
+    let unix_path = resolve_actual_win_path(win_path)
+        .map(|actual_win_path| translate_path_to_unix(actual_win_path))
+        .unwrap_or(String::from(editor_parts[0]));
+
+    println!("EDITOR {}", unix_path);
     std::process::exit(58);
 
     return [
-        translate_path_to_unix(String::from(editor_parts[0])),
+        unix_path,
         String::from(editor_parts[1])
-    ].join(" ")
+    ].join(" ");
 }
 
 fn main() {
@@ -141,7 +156,7 @@ fn main() {
     match env::var("GIT_EDITOR") {
         Ok(val) => {
             git_proc_setup.env("GIT_EDITOR", translate_git_editor(val));
-        },
+        }
         _ => {}
     }
 
