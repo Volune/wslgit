@@ -164,7 +164,9 @@ fn main() {
 
     match env::var("GIT_EDITOR") {
         Ok(val) => {
-            git_proc_setup.env("GIT_EDITOR", translate_git_editor(val));
+            git_proc_setup
+                .env("GIT_EDITOR", translate_git_editor(val))
+                .env("WSLENV", "GIT_EDITOR/u");
         }
         _ => {}
     }
