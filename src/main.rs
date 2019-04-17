@@ -95,7 +95,7 @@ fn shell_escape(arg: String) -> String {
 
 fn unquote(s: String) -> String {
     if s.starts_with('"') {
-        return s.get(1..).map(String::from).unwrap_or(s)
+        return s.get(1..(s.len() - 1)).map(String::from).unwrap_or(s);
     }
     s
 }
@@ -121,9 +121,6 @@ fn translate_git_editor(editor: String) -> String {
     let unix_path = resolve_actual_win_path(win_path)
         .map(|actual_win_path| translate_path_to_unix(actual_win_path))
         .unwrap_or(String::from(editor_parts[0]));
-
-    println!("EDITOR {}", unix_path);
-    std::process::exit(58);
 
     return [
         unix_path,
